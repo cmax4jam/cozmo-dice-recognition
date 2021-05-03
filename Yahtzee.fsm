@@ -1,4 +1,5 @@
 import cv2
+from cozmo_fsm import *
 
 class Yahtzee(StateMachineProgram):
     def __init__(self):
@@ -32,7 +33,7 @@ class Yahtzee(StateMachineProgram):
             for diceContours in self.parent.foundDice:
                 M = cv2.moments(diceContours)
                 print(M)
-       	        cX = int(M['m10'] / M['m00'])
-	            cY = int(M['m01'] / M['m00'])
+                cX = int(M['m10'] / M['m00'])
+                cY = int(M['m01'] / M['m00'])
 
                 
