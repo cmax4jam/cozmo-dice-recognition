@@ -80,8 +80,6 @@ class Yahtzee(StateMachineProgram):
             # cv2.namedWindow('Thresholded Image')
             # cv2.imshow('Thresholded Image', blurred)
             # cv2.waitKey(0)
-            print(contours)
-
             for diceContours in contours:
                 cv2.drawContours(image, [diceContours],0,(0,0,255),1)
                 
@@ -90,24 +88,36 @@ class Yahtzee(StateMachineProgram):
 
                 point = self.robot.kine.project_to_ground(x+w/2, y+h)
                 pointResult = self.robot.kine.base_to_joint("world").dot(point)
-                print(pointResult)
                 pose = Pose(pointResult[0][0], pointResult[1][0], pointResult[2][0], angle_z=degrees(math.nan))
                 self.parent.dicePose.append(pose)
-                print(self.parent.dicePose)
+                # print(self.parent.dicePose)
                 
-
             cv2.namedWindow('Contours')
             cv2.imshow('Contours', image)
             cv2.waitKey(1)
 
             self.post_completion()
 
-    class doPilot(PilotToPose):
+    class DoPilot(PilotToPose):
         def start(self, event=None):
-            print('here')
             self.target_pose = self.parent.dicePose[0]
+            self.parent.dicePose.pop(0)
             super().start(event)
 
+    class DiceRecognition(StateNode):
+        def start(self, event):
+            super().start(event)
+            image = self.robot.myimage
+            _, blobIm = cv2.threshold(image, 180, 255, 0, cv2.THRESH_BINARY)
+            contours,_ = cv2.findContours(blobIm, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+
     $setup{
-        StateNode() =T(2)=> self.FindDice() =C=> self.doPilot()
+        launcher: SetLiftHeight(1) =C=> SetHeadAngle(0) =C=> self.FindDice() =C=> loop
+
+        loop: Iterate(1)
+        loop =T(1)=>  =C=> self.DoPilot() =C=> pickup =Next=> loop
+
+        pickup: Forward(-5) =C=> MoveLift(-5)
+        # loop =C=> 
     }
