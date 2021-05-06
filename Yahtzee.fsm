@@ -13,6 +13,7 @@ class Yahtzee(StateMachineProgram):
 
     class FindDice(StateNode):
         def start(self,event):
+            if self.running: return
             super().start(event)
             image = self.robot.myimage 
 
@@ -42,7 +43,7 @@ class Yahtzee(StateMachineProgram):
             # cv2.imshow("Keypoints", keypoints)
             # cv2.waitKey(1)
 
-            _, blobIm = cv2.threshold(blurred, 180, 255, 0, cv2.THRESH_BINARY)
+            _, blobIm = cv2.threshold(blurred, 135, 255, 0, cv2.THRESH_BINARY)
 
             cv2.namedWindow('Thresholded Image')
             cv2.imshow('Thresholded Image', blobIm)
@@ -89,6 +90,7 @@ class Yahtzee(StateMachineProgram):
                 point = self.robot.kine.project_to_ground(x+w/2, y+h)
                 pointResult = self.robot.kine.base_to_joint("world").dot(point)
                 pose = Pose(pointResult[0][0], pointResult[1][0], pointResult[2][0], angle_z=degrees(math.nan))
+                print('found pose', pose)
                 self.parent.dicePose.append(pose)
                 # print(self.parent.dicePose)
                 
@@ -100,15 +102,18 @@ class Yahtzee(StateMachineProgram):
 
     class DoPilot(PilotToPose):
         def start(self, event=None):
+            if self.running: return
+            print(self.parent.dicePose)
             self.target_pose = self.parent.dicePose[0]
             self.parent.dicePose.pop(0)
             super().start(event)
 
     class DiceRecognition(StateNode):
         def start(self, event):
+            if self.running: return
             super().start(event)
             image = self.robot.myimage
-            _, image_thresh = cv2.threshold(image, 180, 255, 0, cv2.THRESH_BINARY)
+            _, image_thresh = cv2.threshold(image, 110, 255, 0, cv2.THRESH_BINARY)
             contours,_ = cv2.findContours(image_thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             
             pipContours = []
@@ -117,8 +122,8 @@ class Yahtzee(StateMachineProgram):
             areas.sort(key=lambda x: x[1])
             areas.reverse()
             minArea = 200
-            maxArea = 400            
-            print(areas)
+            maxArea = 1000            
+            # print("----------AREAS", areas)
             for area_entry in areas:
                 if area_entry[1] < minArea or area_entry[1] > maxArea:
                     continue
@@ -129,6 +134,8 @@ class Yahtzee(StateMachineProgram):
 
             for pips in pipContours:
                 cv2.drawContours(image, [pips],0,(0,0,255),1)
+
+            print("*************NUMPIPS", numPips)
             
             cv2.namedWindow('Pips')
             cv2.imshow('Pips', image)
@@ -137,11 +144,12 @@ class Yahtzee(StateMachineProgram):
             self.post_data(numPips)
 
     $setup{
-        launcher: SetLiftHeight(1) =C=> SetHeadAngle(0) =C=> self.FindDice() =C=> loop
+        launcher: SetLiftHeight(1) =C=> SetHeadAngle(-19) =C=> StateNode() =T(2)=> self.FindDice() =C=> loop
 
-        loop: Iterate(1)
-        loop =T(1)=>  =C=> self.DoPilot() =C=> pickup =Next=> loop
+        loop: self.DoPilot() =C=> Forward(15) =C=> StateNode() =T(1)=> readPips =C=> pickup =CNext=> loop
 
-        pickup: Forward(-5) =C=> MoveLift(-5)
+        readPips: self.DiceRecognition() =D=> Say()
+
+        pickup: Forward(-30) =C=> MoveLift(-5)
         # loop =C=> 
     }
