@@ -1,5 +1,6 @@
 import cv2
 from cozmo_fsm import *
+import numpy as np
 
 class Yahtzee(StateMachineProgram):
     def __init__(self):
@@ -15,36 +16,98 @@ class Yahtzee(StateMachineProgram):
             super().start(event)
             image = self.robot.myimage 
 
-            blurred = cv2.GaussianBlur(image, (5, 5), 0)
-            _, image_thresh = cv2.threshold(blurred, 105, 255, 0, cv2.THRESH_BINARY)
-            contours,_ = cv2.findContours(image_thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.namedWindow('Image')
+            cv2.imshow('Image', image)
+            cv2.waitKey(1) 
 
-            areas = [(i, cv2.contourArea(contours[i])) for i in range(len(contours))]
-            areas.sort(key=lambda x: x[1])
-            areas.reverse()
-            minArea = 100
-            maxArea = 1000
-            for area_entry in areas:
-                if area_entry[1] < minArea or area_entry[1] > maxArea:
-                    continue
-                index = area_entry[0]
-                contour = contours[index]
-                self.parent.foundDice.append(contour)
+            #blurred = cv2.GaussianBlur(image, (7, 7), 0)
+            blurred = cv2.medianBlur(image, 5)
+
+            #BLOBS!
+            #Set up the detector with default parameters.
+            params = cv2.SimpleBlobDetector_Params()
+            params.minThreshold = 0
+            params.maxThreshold = 100
+
+            ver = (cv2.__version__).split('.')
+            if int(ver[0]) < 3 :
+                detector = cv2.SimpleBlobDetector(params)
+            else : 
+                detector = cv2.SimpleBlobDetector_create(params)
+
+            detector.empty() 
+            keypoints = detector.detect(blurred)
+            
+            # Show keypoints
+            # cv2.imshow("Keypoints", keypoints)
+            # cv2.waitKey(1)
+
+            _, blobIm = cv2.threshold(blurred, 180, 255, 0, cv2.THRESH_BINARY)
 
             cv2.namedWindow('Thresholded Image')
-            cv2.imshow('Thresholded Image', blurred)
+            cv2.imshow('Thresholded Image', blobIm)
+            cv2.waitKey(1)  
+            
+            blobIm = cv2.morphologyEx(blobIm, cv2.MORPH_OPEN, np.ones((2,2)))
+
+            cv2.namedWindow('Good Blobs')
+            cv2.imshow('Good Blobs', blobIm)
+            cv2.waitKey(1) 
+
+            kernel = np.ones((5,5),np.uint8)
+            dil = cv2.dilate(blobIm, kernel, iterations = 3)
+            erode = cv2.erode(dil, kernel, iterations = 3)
+
+            cv2.namedWindow('dilatedIm')
+            cv2.imshow('dilatedIm', erode)
+            cv2.waitKey(1)  
+
+            contours,_ = cv2.findContours(erode, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            # diceContours = []
+            # areas = [(i, cv2.contourArea(contours[i])) for i in range(len(contours))]
+            # areas.sort(key=lambda x: x[1])
+            # areas.reverse()
+            # minArea = 200
+            # maxArea = 1000
+            # print(areas)
+            # for area_entry in areas:
+            #     if area_entry[1] < minArea or area_entry[1] > maxArea:
+            #         continue
+            #     index = area_entry[0]
+            #     contour = contours[index]
+            #     diceContours.append(contour)
+
+            # cv2.namedWindow('Thresholded Image')
+            # cv2.imshow('Thresholded Image', blurred)
+            # cv2.waitKey(0)
+            print(contours)
+
+            for diceContours in contours:
+                cv2.drawContours(image, [diceContours],0,(0,0,255),1)
+                
+                x,y,w,h = cv2.boundingRect(diceContours)
+                cv2.rectangle(image, (x,y), (x+w,y+h), (255, 255, 0), 2)
+
+                point = self.robot.kine.project_to_ground(x+w/2, y+h)
+                pointResult = self.robot.kine.base_to_joint("world").dot(point)
+                print(pointResult)
+                pose = Pose(pointResult[0][0], pointResult[1][0], pointResult[2][0], angle_z=degrees(math.nan))
+                self.parent.dicePose.append(pose)
+                print(self.parent.dicePose)
+                
+
+            cv2.namedWindow('Contours')
+            cv2.imshow('Contours', image)
             cv2.waitKey(1)
-
-            for diceContours in self.parent.foundDice:
-                cv2.drawContours(blurred, [diceContours],0,(0,0,255),1)
-
-                M = cv2.moments(diceContours)
-                print(M)
-                cX = int(M['m10'] / M['m00'])
-                cY = int(M['m01'] / M['m00'])
 
             self.post_completion()
 
+    class doPilot(PilotToPose):
+        def start(self, event=None):
+            print('here')
+            self.target_pose = self.parent.dicePose[0]
+            super().start(event)
+
     $setup{
-        StateNode() =T(2)=> self.FindDice()
+        StateNode() =T(2)=> self.FindDice() =C=> self.doPilot()
     }
