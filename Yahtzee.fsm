@@ -4,10 +4,12 @@ import numpy as np
 
 class Yahtzee(StateMachineProgram):
     def __init__(self):
-        super().__init__(cam_viewer=False)
+        super().__init__(cam_viewer=False, aruco=False, particle_filter=False, annotate_sdk=False)
         self.foundDice = []
         self.dicePose = []
         self.diceValues = []
+        self.toSpeak = None
+        self.origin = None
 
     def user_image(self,image,gray):
         self.robot.myimage = gray
@@ -17,6 +19,8 @@ class Yahtzee(StateMachineProgram):
             if self.running: return
             super().start(event)
             image = self.robot.myimage 
+
+            self.parent.origin = self.robot.pose
 
             cv2.namedWindow('Image')
             cv2.imshow('Image', image)
@@ -44,7 +48,7 @@ class Yahtzee(StateMachineProgram):
             # cv2.imshow("Keypoints", keypoints)
             # cv2.waitKey(1)
 
-            _, blobIm = cv2.threshold(blurred, 135, 255, 0, cv2.THRESH_BINARY)
+            _, blobIm = cv2.threshold(blurred, 100, 255, 0, cv2.THRESH_BINARY)
 
             cv2.namedWindow('Thresholded Image')
             cv2.imshow('Thresholded Image', blobIm)
@@ -52,9 +56,9 @@ class Yahtzee(StateMachineProgram):
             
             blobIm = cv2.morphologyEx(blobIm, cv2.MORPH_OPEN, np.ones((2,2)))
 
-            cv2.namedWindow('Good Blobs')
-            cv2.imshow('Good Blobs', blobIm)
-            cv2.waitKey(1) 
+            # cv2.namedWindow('Good Blobs')
+            # cv2.imshow('Good Blobs', blobIm)
+            # cv2.waitKey(1) 
 
             kernel = np.ones((5,5),np.uint8)
             dil = cv2.dilate(blobIm, kernel, iterations = 3)
@@ -64,20 +68,21 @@ class Yahtzee(StateMachineProgram):
             cv2.imshow('dilatedIm', erode)
             cv2.waitKey(1)  
 
-            contours,_ = cv2.findContours(erode, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            contours_tmp, _ = cv2.findContours(erode, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             # diceContours = []
-            # areas = [(i, cv2.contourArea(contours[i])) for i in range(len(contours))]
-            # areas.sort(key=lambda x: x[1])
-            # areas.reverse()
-            # minArea = 200
-            # maxArea = 1000
+            areas = [(i, cv2.contourArea(contours_tmp[i])) for i in range(len(contours_tmp))]
+            areas.sort(key=lambda x: x[1])
+            areas.reverse()
+            minArea = 100
+            maxArea = 1000
             # print(areas)
-            # for area_entry in areas:
-            #     if area_entry[1] < minArea or area_entry[1] > maxArea:
-            #         continue
-            #     index = area_entry[0]
-            #     contour = contours[index]
-            #     diceContours.append(contour)
+            contours = []
+            for area_entry in areas:
+                if area_entry[1] < minArea or area_entry[1] > maxArea:
+                    continue
+                index = area_entry[0]
+                contour = contours_tmp[index]
+                contours.append(contour)
 
             # cv2.namedWindow('Thresholded Image')
             # cv2.imshow('Thresholded Image', blurred)
@@ -86,7 +91,7 @@ class Yahtzee(StateMachineProgram):
                 cv2.drawContours(image, [diceContours],0,(0,0,255),1)
                 
                 x,y,w,h = cv2.boundingRect(diceContours)
-                cv2.rectangle(image, (x,y), (x+w,y+h), (255, 255, 0), 2)
+                cv2.rectangle(image, (x,y), (x+w,y+h), (255, 0, 0), 2)
 
                 point = self.robot.kine.project_to_ground(x+w/2, y+h)
                 pointResult = self.robot.kine.base_to_joint("world").dot(point)
@@ -109,12 +114,18 @@ class Yahtzee(StateMachineProgram):
             self.parent.dicePose.pop(0)
             super().start(event)
 
+    class PilotToOrigin(PilotToPose):
+        def start(self, event=None):
+            if self.running: return
+            self.target_pose = self.parent.origin
+            super().start(event)
+
     class DiceRecognition(StateNode):
         def start(self, event):
             if self.running: return
             super().start(event)
             image = self.robot.myimage
-            _, image_thresh = cv2.threshold(image, 110, 255, 0, cv2.THRESH_BINARY)
+            _, image_thresh = cv2.threshold(image, 125, 255, 0, cv2.THRESH_BINARY)
             contours,_ = cv2.findContours(image_thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             
             pipContours = []
@@ -123,7 +134,7 @@ class Yahtzee(StateMachineProgram):
             areas.sort(key=lambda x: x[1])
             areas.reverse()
             minArea = 200
-            maxArea = 1000            
+            maxArea = 1000
             # print("----------AREAS", areas)
             for area_entry in areas:
                 if area_entry[1] < minArea or area_entry[1] > maxArea:
@@ -140,10 +151,18 @@ class Yahtzee(StateMachineProgram):
             
             cv2.namedWindow('Pips')
             cv2.imshow('Pips', image)
-            cv2.waitKey(0)
+            cv2.waitKey(1)
 
+            self.parent.toSpeak = numPips
             self.parent.diceValues.append(numPips)
-            self.post_data(numPips)
+            self.post_completion()
+
+    class SpeakResult(Say):
+        def start(self, event):
+            self.text = self.parent.toSpeak
+            super().start(event)
+
+            
 
     class BestMove(Say):
         def start(self,event):
@@ -199,12 +218,14 @@ class Yahtzee(StateMachineProgram):
             super().start(event)
 
     $setup{
-        launcher: SetLiftHeight(1) =C=> SetHeadAngle(-19) =C=> StateNode() =T(2)=> self.FindDice() =C=> loop
+        launcher: SetLiftHeight(1) =C=> SetHeadAngle(-20) =C=> StateNode() =T(2)=> self.FindDice() =C=> loop
 
-        loop: self.DoPilot() =C=> Forward(15) =C=> StateNode() =T(1)=> readPips =C=> pickup =CNext=> loop
+        loop: Iterate(range(2)) 
+        loop =D=> self.DoPilot() =C=> Forward(5) =C=> StateNode() =T(1)=> readPips
 
-        readPips: self.DiceRecognition() =D=> Say()
+        readPips: self.DiceRecognition()
+        readPips =C=> self.SpeakResult() =C=> pickup
 
-        pickup: Forward(-30) =C=> MoveLift(-5)
-        # loop =C=> 
+        pickup: Forward(-25) =C=> MoveLift(-50) =T(2)=> SetLiftHeight(1) =CNext=> loop
+
     }
