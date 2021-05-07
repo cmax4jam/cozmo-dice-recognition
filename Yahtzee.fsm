@@ -7,6 +7,7 @@ class Yahtzee(StateMachineProgram):
         super().__init__(cam_viewer=False)
         self.foundDice = []
         self.dicePose = []
+        self.diceValues = []
 
     def user_image(self,image,gray):
         self.robot.myimage = gray
@@ -141,7 +142,61 @@ class Yahtzee(StateMachineProgram):
             cv2.imshow('Pips', image)
             cv2.waitKey(0)
 
+            self.parent.diceValues.append(numPips)
             self.post_data(numPips)
+
+    class BestMove(Say):
+        def start(self,event):
+            #coding dice vals
+            pipOccur = [0]*6
+            for i in range(6):
+                occur = np.count_nonzero(self.parent.diceValues == i+1)
+                pipOccur[i] = occur
+            
+            #LOWER SECTION
+            #Yahtzee
+            for i in range(6):
+                if pipOccur[i] == 5:
+                    self.text =  'You got a Yahtzee'
+                    super().start(event)
+            #Large Straight
+            if pipOccur == [1,1,1,1,1,0] or pipOccur == [0,1,1,1,1,1]:
+                self.text = 'You got a Large Straight'
+                if pipOccur == [1,1,1,1,1,0]:
+                    self.text = self.text + 'with dice 1, 2, 3, 4, 5'
+                else:
+                    self.text = self.text + 'with dice 2, 3, 4, 5, 6'
+                super().start(event)
+            #Small Straight
+            consecutive = 0
+            for i in range(6):
+                if pipOccur[i] != 0:
+                    consecutive += 1
+                    if consecutive == 4:
+                        self.text = 'You got a Small Straight with dice ' + str(i-2) + str(i-1) + str(i) + str(i+1)
+                        super().start(event)
+                else:
+                    consecutive = 0
+            #Full House
+            if 2 in pipOccur and 3 in pipOccur:
+                self.text =  'You got a Full House with 3 ' + str(pipOccur.index(3)+1) + 'dice and 2 ' + str(pipOccur.index(2)+1) + 'dice'
+                super().start(event)
+            #Four of a Kind
+            if 4 in pipOccur:
+                self.text =  'You got 4 of a kind of ' + str(pipOccur.index(4)+1)
+                super().start(event)   
+            #Three of a kind
+            if 3 in pipOccur: 
+                self.text =  'You got 3 of a kind of ' + str(pipOccur.index(3)+1)   
+                super().start(event) 
+
+            #NO LOWER SECTION
+            upperVals = [i * j for i, j in zip(pipOccur, [1,2,3,4,5,6])]
+            maxPoints = max(upperVals)
+            maxPointsIndex = upperVals.index(maxPoints) #also the index of the pipOccurance
+            numMaxPointsDice = pipOccur[maxPointsIndex]
+            self.text = 'No lower section dice combinations found. Your best move is the ' + str(numMaxPointsDice) + str(maxPointsIndex + 1) + 'pip dice for ' + str(max(upperVals)) + 'points'
+            super().start(event)
 
     $setup{
         launcher: SetLiftHeight(1) =C=> SetHeadAngle(-19) =C=> StateNode() =T(2)=> self.FindDice() =C=> loop
