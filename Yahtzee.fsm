@@ -18,6 +18,10 @@ class Yahtzee(StateMachineProgram):
         self.robot.myimage = gray
 
     class FindDice(StateNode):
+        def __init__(self, checkMiss=False):
+            super().__init__()
+            self.checkMiss = checkMiss
+
         def start(self,event):
             if self.running: return
             super().start(event)
@@ -98,12 +102,12 @@ class Yahtzee(StateMachineProgram):
             
             x,y,w,h = cv2.boundingRect(diceContours)
             cv2.rectangle(image, (x,y), (x+w,y+h), (255, 0, 0), 2)
-
-            point = self.robot.kine.project_to_ground(x+w/2, y+h)
-            pointResult = self.robot.kine.base_to_link("world").dot(point)
-            pose = Pose(pointResult[0][0], pointResult[1][0], pointResult[2][0], angle_z=degrees(math.nan))
-            print('found pose', pose)
-            self.parent.dicePose.append(pose)
+            if not checkMiss:
+                point = self.robot.kine.project_to_ground(x+w/2, y+h)
+                pointResult = self.robot.kine.base_to_link("world").dot(point)
+                pose = Pose(pointResult[0][0], pointResult[1][0], pointResult[2][0], angle_z=degrees(math.nan))
+                print('found pose', pose)
+                self.parent.dicePose.append(pose)
                 
             cv2.namedWindow('Contours')
             cv2.imshow('Contours', image)
@@ -167,10 +171,12 @@ class Yahtzee(StateMachineProgram):
             self.text = self.parent.toSpeak
             super().start(event)
 
-            
-
     class BestMove(Say):
         def start(self,event):
+            if len(self.parent.diceValues) != 5:
+                self.text = 'Did not see all 5 dice'
+                super().start()
+
             #coding dice vals
             pipOccur = [0]*6
             for i in range(6):
@@ -221,12 +227,15 @@ class Yahtzee(StateMachineProgram):
             numMaxPointsDice = pipOccur[maxPointsIndex]
             self.text = 'No lower section dice combinations found. Your best move is the ' + str(numMaxPointsDice) + str(maxPointsIndex + 1) + 'pip dice for ' + str(max(upperVals)) + 'points'
             super().start(event)
+        
+
 
     $setup{
         launcher: SetLiftHeight(1) =C=> SetHeadAngle(-20) =C=> StateNode() =T(2)=> loop
 
-        loop: Iterate(range(4)) 
+        loop: Iterate(range(5)) 
         loop =D=> find
+        loop =C=> BestMove()
 
         find: self.FindDice()
         find =F=> Turn(40) =C=> StateNode() =T(0.7)=>find
@@ -235,6 +244,9 @@ class Yahtzee(StateMachineProgram):
         readPips: self.DiceRecognition()
         readPips =C=> self.SpeakResult() =C=> pickup
 
-        pickup: Forward(-40) =C=> MoveLift(-50) =T(2)=> SetLiftHeight(1) =CNext=> loop
+        pickup: Forward(-40) =C=> MoveLift(-50) =T(2)=> SetLiftHeight(1) =C=> checkMiss
 
+        checkMiss: self.FindDice(checkMiss=True)
+        checkMiss =F=> StateNode() =CNext=> loop
+        checkMiss =C=> Forward(45) =C=> pickup
     }
