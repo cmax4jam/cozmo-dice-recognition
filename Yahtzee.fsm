@@ -4,15 +4,15 @@ import numpy as np
 
 class Yahtzee(StateMachineProgram):
     def __init__(self):
-        super().__init__(cam_viewer=False, aruco=False, particle_filter=False, annotate_sdk=False)
+        super().__init__(cam_viewer=False, aruco=False, annotate_sdk=False)
         self.foundDice = []
         self.dicePose = []
         self.diceValues = []
         self.toSpeak = None
         self.origin = self.robot.pose
 
-        self.findingThresh = 200
-        self.pipThresh = 140
+        self.findingThresh = 190
+        self.pipThresh = 200
 
     def user_image(self,image,gray):
         self.robot.myimage = gray
@@ -76,7 +76,7 @@ class Yahtzee(StateMachineProgram):
             areas.reverse()
             minArea = 100
             maxArea = 2500
-            # print(areas)
+            print("-----AREAS", areas)
             contours = []
             for area_entry in areas:
                 if area_entry[1] < minArea or area_entry[1] > maxArea:
@@ -100,7 +100,7 @@ class Yahtzee(StateMachineProgram):
             cv2.rectangle(image, (x,y), (x+w,y+h), (255, 0, 0), 2)
 
             point = self.robot.kine.project_to_ground(x+w/2, y+h)
-            pointResult = self.robot.kine.base_to_joint("world").dot(point)
+            pointResult = self.robot.kine.base_to_link("world").dot(point)
             pose = Pose(pointResult[0][0], pointResult[1][0], pointResult[2][0], angle_z=degrees(math.nan))
             print('found pose', pose)
             self.parent.dicePose.append(pose)
@@ -114,9 +114,9 @@ class Yahtzee(StateMachineProgram):
     class DoPilot(PilotToPose):
         def start(self, event=None):
             if self.running: return
-            print(self.parent.dicePose)
+            # print(self.parent.dicePose)
             self.target_pose = self.parent.dicePose[0]
-            self.parent.dicePose.pop(0)
+            self.parent.dicePose.clear()
             super().start(event)
 
     class PilotToOrigin(PilotToPose):
@@ -225,7 +225,7 @@ class Yahtzee(StateMachineProgram):
     $setup{
         launcher: SetLiftHeight(1) =C=> SetHeadAngle(-20) =C=> StateNode() =T(2)=> loop
 
-        loop: Iterate(range(2)) 
+        loop: Iterate(range(4)) 
         loop =D=> find
 
         find: self.FindDice()
@@ -235,6 +235,6 @@ class Yahtzee(StateMachineProgram):
         readPips: self.DiceRecognition()
         readPips =C=> self.SpeakResult() =C=> pickup
 
-        pickup: Forward(-40) =C=> MoveLift(-50) =T(2)=> SetLiftHeight(1) =C=> Turn(40) =CNext=> loop
+        pickup: Forward(-40) =C=> MoveLift(-50) =T(2)=> SetLiftHeight(1) =CNext=> loop
 
     }
