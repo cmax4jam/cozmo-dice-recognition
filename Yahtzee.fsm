@@ -11,8 +11,8 @@ class Yahtzee(StateMachineProgram):
         self.toSpeak = None
         self.origin = self.robot.pose
 
-        self.findingThresh = 190
-        self.pipThresh = 200
+        self.findingThresh = 140
+        self.pipThresh = 190
 
     def user_image(self,image,gray):
         self.robot.myimage = gray
@@ -102,7 +102,7 @@ class Yahtzee(StateMachineProgram):
             
             x,y,w,h = cv2.boundingRect(diceContours)
             cv2.rectangle(image, (x,y), (x+w,y+h), (255, 0, 0), 2)
-            if not checkMiss:
+            if not self.checkMiss:
                 point = self.robot.kine.project_to_ground(x+w/2, y+h)
                 pointResult = self.robot.kine.base_to_link("world").dot(point)
                 pose = Pose(pointResult[0][0], pointResult[1][0], pointResult[2][0], angle_z=degrees(math.nan))
@@ -180,9 +180,13 @@ class Yahtzee(StateMachineProgram):
             #coding dice vals
             pipOccur = [0]*6
             for i in range(6):
-                occur = np.count_nonzero(self.parent.diceValues == i+1)
+                occur = self.parent.diceValues.count(i+1)
+                print(occur)
                 pipOccur[i] = occur
             
+            print (self.parent.diceValues)
+            print(pipOccur)
+
             #LOWER SECTION
             #Yahtzee
             for i in range(6):
@@ -225,7 +229,7 @@ class Yahtzee(StateMachineProgram):
             maxPoints = max(upperVals)
             maxPointsIndex = upperVals.index(maxPoints) #also the index of the pipOccurance
             numMaxPointsDice = pipOccur[maxPointsIndex]
-            self.text = 'No lower section dice combinations found. Your best move is the ' + str(numMaxPointsDice) + str(maxPointsIndex + 1) + 'pip dice for ' + str(max(upperVals)) + 'points'
+            self.text = 'No good moves. Your best move is the ' + str(numMaxPointsDice) + ' ' +str(maxPointsIndex + 1) + ' dice for ' + str(max(upperVals)) + ' points'
             super().start(event)
         
 
@@ -235,7 +239,7 @@ class Yahtzee(StateMachineProgram):
 
         loop: Iterate(range(5)) 
         loop =D=> find
-        loop =C=> BestMove()
+        loop =C=> self.BestMove()
 
         find: self.FindDice()
         find =F=> Turn(40) =C=> StateNode() =T(0.7)=>find
@@ -247,6 +251,6 @@ class Yahtzee(StateMachineProgram):
         pickup: Forward(-40) =C=> MoveLift(-50) =T(2)=> SetLiftHeight(1) =C=> checkMiss
 
         checkMiss: self.FindDice(checkMiss=True)
-        checkMiss =F=> StateNode() =CNext=> loop
-        checkMiss =C=> Forward(45) =C=> pickup
+        checkMiss =F=> Say("got it") =CNext=> loop
+        checkMiss =C=> Say("missed it") =C=> Forward(50) =C=> pickup
     }
