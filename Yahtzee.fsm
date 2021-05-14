@@ -12,7 +12,7 @@ class Yahtzee(StateMachineProgram):
         self.origin = self.robot.pose
 
         self.findingThresh = 140
-        self.pipThresh = 190
+        self.pipThresh = 100
 
     def user_image(self,image,gray):
         self.robot.myimage = gray
@@ -142,8 +142,8 @@ class Yahtzee(StateMachineProgram):
             areas = [(i, cv2.contourArea(contours[i])) for i in range(len(contours))]
             areas.sort(key=lambda x: x[1])
             areas.reverse()
-            minArea = 200
-            maxArea = 1000
+            minArea = 170
+            maxArea = 1500
             # print("----------AREAS", areas)
             for area_entry in areas:
                 if area_entry[1] < minArea or area_entry[1] > maxArea:
@@ -235,7 +235,7 @@ class Yahtzee(StateMachineProgram):
 
 
     $setup{
-        launcher: SetLiftHeight(1) =C=> SetHeadAngle(-20) =C=> StateNode() =T(2)=> loop
+        launcher: SetLiftHeight(1) =C=> SetHeadAngle(-22) =C=> StateNode() =T(2)=> loop
 
         loop: Iterate(range(5)) 
         loop =D=> find
